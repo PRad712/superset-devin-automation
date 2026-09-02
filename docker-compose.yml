@@ -13,3 +13,9 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+  mock-devin:
+    profiles: ["demo"]
+    image: python:3.11-slim
+    volumes:
+      - ./scripts:/scripts:ro
+    command: ["python", "/scripts/mock_devin_api.py", "--port", "9000"]
