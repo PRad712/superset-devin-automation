@@ -71,6 +71,7 @@ SQLite data is persisted in `./data`, mounted at `/app/data` in the container.
 | `SESSION_TAG` | no | `superset-remediation` | Tag used to find Devin sessions |
 | `MAX_CONCURRENT_SESSIONS` | no | `5` | Active/blocked session limit |
 | `SUPERSET_REPO` | no | empty | Repository fallback as `org/repo` |
+| `TRIGGER_TOKEN` | no | empty | Optional token required by the manual trigger endpoint |
 | `DISABLE_POLLER` | no | `false` | Disable polling for tests or maintenance |
 
 ## Register the GitHub webhook
@@ -88,6 +89,27 @@ For local development, expose port 8000 with a tunnel such as ngrok:
 An issue opened event always triggers remediation. Existing issues trigger
 remediation when the `devin-remediate` label (or configured label) is added.
 Pull request events and unrelated issue actions are ignored.
+
+## Manual trigger endpoint
+
+`POST /trigger/{issue_number}` accepts an issue title, body, and optional
+repository override. It uses `SUPERSET_REPO` when `repo_full_name` is omitted:
+
+```bash
+curl -X POST http://localhost:8000/trigger/43420 \
+  -H 'Content-Type: application/json' \
+  -H 'X-Trigger-Token: optional-token' \
+  -d '{"title":"Investigate dashboard bug","body":"Please investigate.","repo_full_name":"PRad712/superset"}'
+```
+
+When `TRIGGER_TOKEN` is configured, the matching `X-Trigger-Token` header is
+required. New manual triggers return `200`; duplicates also return `200` with
+`"duplicate": true`. Both manual triggers and GitHub webhooks share the
+duplicate check, concurrency limit, Devin session creation, and database
+recording path. When the limit is reached, the endpoint returns `429` with
+`active_sessions`, `limit`, and a `Retry-After` header equal to
+`POLL_INTERVAL_SECONDS`. Both `active` and `blocked` sessions count toward the
+limit.
 
 ## Simulate a webhook
 
@@ -110,11 +132,41 @@ The standard-library alternative is:
 python scripts/send_webhook.py examples/issue_opened.json --secret testsecret
 ```
 
+## Structured logs and demo mode
+
+The API emits one JSON object per log line, including timestamps, levels,
+logger names, event names, and event fields:
+
+```json
+{"ts":"2026-01-01T00:00:00+00:00","level":"INFO","logger":"app.main","event":"session_created","message":"session_created","source":"manual","issue_number":42,"session_id":"devin-123","url":null,"repo":"org/repo"}
+```
+
+For a local demo without spending Devin ACUs, set these values in `.env`:
+
+```dotenv
+DEVIN_API_BASE_URL=http://mock-devin:9000/v1
+POLL_INTERVAL_SECONDS=10
+MAX_CONCURRENT_SESSIONS=5
+```
+
+Then start the API and mock Devin service:
+
+```bash
+docker compose --profile demo up --build -d
+python scripts/simulate_events.py --delay 2
+```
+
+The simulator reads `scripts/sample_issues.json`, ignores unknown fields such
+as `source_url`, and submits each issue to the manual trigger endpoint. The
+mock session transitions from `working` to `blocked` to `finished` over about
+40 seconds, at which point the poller records a mock pull request URL.
+
 ## Endpoints
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` | `/webhook/github` | Validate and process GitHub Issues events |
+| `POST` | `/trigger/{issue_number}` | Manually start remediation for an issue |
 | `GET` | `/health` | Liveness check |
 | `GET` | `/metrics` | Counts and average completion duration |
 | `GET` | `/sessions` | Session records for the dashboard |

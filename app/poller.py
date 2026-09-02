@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from . import db
+from .logging_config import log_event
 
 logger = logging.getLogger(__name__)
 PR_URL_PATTERN = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/pull/\d+")
@@ -52,9 +53,14 @@ async def poll_once(client: Any, session_tag: str, database_path: str = "data/se
         )
         pr_url = extract_pr_url(session)
         if status != record.status or (pr_url and pr_url != record.pr_url):
-            logger.info(
-                "Session %s: issue=#%s status %s -> %s pr_url=%s",
-                record.session_id, record.issue_number, record.status, status, pr_url,
+            log_event(
+                logger,
+                "session_status_transition",
+                issue_number=record.issue_number,
+                session_id=record.session_id,
+                from_status=record.status,
+                to_status=status,
+                pr_url=pr_url,
             )
         raw_result = json.dumps(session, default=str)[:4000]
         db.update_record(
@@ -74,8 +80,8 @@ async def run_poller(
     while not stop_event.is_set():
         try:
             await poll_once(client, session_tag, database_path)
-        except Exception:
-            logger.exception("Polling Devin sessions failed")
+        except Exception as exc:
+            log_event(logger, "poll_failed", error=str(exc))
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=interval)
         except asyncio.TimeoutError:

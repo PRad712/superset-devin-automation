@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     SESSION_TAG: str = "superset-remediation"
     MAX_CONCURRENT_SESSIONS: int = 5
     SUPERSET_REPO: str | None = None
+    TRIGGER_TOKEN: str | None = None
     DISABLE_POLLER: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
