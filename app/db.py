@@ -1,4 +1,3 @@
-import json
 import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
@@ -184,7 +183,3 @@ def metrics(path: str) -> dict[str, Any]:
             round(sum(pr_durations) / len(pr_durations), 1) if pr_durations else None
         ),
     }
-
-
-def record_to_json(record: SessionRecord) -> str:
-    return json.dumps(record.to_dict())
