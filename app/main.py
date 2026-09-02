@@ -218,6 +218,7 @@ async def trigger_remediation(
 async def get_metrics():
     result = db.metrics(settings.DATABASE_PATH)
     result["poll_interval_seconds"] = settings.POLL_INTERVAL_SECONDS
+    result["max_concurrent_sessions"] = settings.MAX_CONCURRENT_SESSIONS
     return result
 
 
