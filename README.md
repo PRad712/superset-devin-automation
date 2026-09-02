@@ -185,9 +185,19 @@ Example metrics response:
   "failed": 1,
   "total": 6,
   "avg_completion_seconds": 1842.5,
+  "success_rate_percent": 80.0,
+  "throughput_per_hour": 0.12,
+  "completed_last_hour": 2,
+  "avg_time_to_pr_seconds": 1750.0,
   "poll_interval_seconds": 30
 }
 ```
+
+`success_rate_percent` is completed sessions divided by completed plus failed
+sessions. `throughput_per_hour` is completed sessions per hour since the
+earliest record was created. `completed_last_hour` counts completed sessions
+finished in the last 60 minutes. `avg_time_to_pr_seconds` is the average
+completion time for completed sessions with a discovered pull request.
 
 Devin statuses map as follows: `finished` to `completed`, `expired` to
 `failed`, `blocked` to `blocked`, and all other statuses (including `working`,

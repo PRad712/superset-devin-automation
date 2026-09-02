@@ -1,7 +1,7 @@
 import json
 import sqlite3
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -136,25 +136,53 @@ def metrics(path: str) -> dict[str, Any]:
                 SUM(CASE WHEN status IN ('active', 'blocked') THEN 1 ELSE 0 END) AS active,
                 SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed,
                 SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
-                COUNT(*) AS total
+                COUNT(*) AS total,
+                MIN(created_at) AS earliest_created_at
             FROM session_records
             """
         ).fetchone()
         rows = connection.execute(
-            "SELECT created_at, completed_at FROM session_records "
+            "SELECT created_at, completed_at, pr_url FROM session_records "
             "WHERE status = 'completed' AND completed_at IS NOT NULL"
         ).fetchall()
+    now = datetime.now(timezone.utc)
+    recent_cutoff = now - timedelta(minutes=60)
     durations = []
+    pr_durations = []
+    completed_last_hour = 0
     for row in rows:
         created = datetime.fromisoformat(row["created_at"])
         completed = datetime.fromisoformat(row["completed_at"])
-        durations.append((completed - created).total_seconds())
+        duration = (completed - created).total_seconds()
+        durations.append(duration)
+        if row["pr_url"] is not None:
+            pr_durations.append(duration)
+        if recent_cutoff <= completed <= now:
+            completed_last_hour += 1
+    active = int(counts["active"] or 0)
+    completed_count = int(counts["completed"] or 0)
+    failed = int(counts["failed"] or 0)
+    total = int(counts["total"] or 0)
+    resolved = completed_count + failed
+    success_rate = round(completed_count / resolved * 100, 1) if resolved else None
+    if total:
+        earliest = datetime.fromisoformat(counts["earliest_created_at"])
+        hours = max((now - earliest).total_seconds() / 3600, 1.0)
+        throughput = round(completed_count / hours, 2)
+    else:
+        throughput = None
     return {
-        "active": int(counts["active"] or 0),
-        "completed": int(counts["completed"] or 0),
-        "failed": int(counts["failed"] or 0),
-        "total": int(counts["total"] or 0),
-        "avg_completion_seconds": sum(durations) / len(durations) if durations else None,
+        "active": active,
+        "completed": completed_count,
+        "failed": failed,
+        "total": total,
+        "avg_completion_seconds": round(sum(durations) / len(durations), 1) if durations else None,
+        "success_rate_percent": success_rate,
+        "throughput_per_hour": throughput,
+        "completed_last_hour": completed_last_hour,
+        "avg_time_to_pr_seconds": (
+            round(sum(pr_durations) / len(pr_durations), 1) if pr_durations else None
+        ),
     }
 
 
