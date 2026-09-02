@@ -63,6 +63,8 @@ async def github_webhook(request: Request):
     ):
         return JSONResponse({"detail": "Invalid webhook signature"}, status_code=401)
     event = request.headers.get("X-GitHub-Event", "")
+    delivery = request.headers.get("X-GitHub-Delivery", "-")
+    logger.info("Webhook received: event=%s delivery=%s", event or "-", delivery)
     if event == "ping":
         return {"ok": True, "event": "ping"}
     if event != "issues":
@@ -75,7 +77,14 @@ async def github_webhook(request: Request):
     if issue is None:
         action = payload.get("action", "unknown")
         event_label = (payload.get("label") or {}).get("name", "")
+        logger.info("Webhook ignored: action=%s label=%s", action, event_label or "-")
         return {"ok": True, "ignored": f"{action}/{event_label}"}
+    logger.info(
+        "Remediation requested: issue=#%s action=%s repo=%s",
+        issue.number,
+        payload.get("action"),
+        issue.repo_full_name,
+    )
     existing = db.get_record_by_issue(settings.DATABASE_PATH, issue.number)
     if existing:
         return {"ok": True, "duplicate": True, "session_id": existing.session_id}
@@ -97,6 +106,7 @@ async def github_webhook(request: Request):
         created.session_id,
         status="active",
     )
+    logger.info("Devin session created: issue=#%s session_id=%s", issue.number, created.session_id)
     return JSONResponse(
         {
             "ok": True,

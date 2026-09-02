@@ -51,6 +51,11 @@ async def poll_once(client: Any, session_tag: str, database_path: str = "data/se
             else None
         )
         pr_url = extract_pr_url(session)
+        if status != record.status or (pr_url and pr_url != record.pr_url):
+            logger.info(
+                "Session %s: issue=#%s status %s -> %s pr_url=%s",
+                record.session_id, record.issue_number, record.status, status, pr_url,
+            )
         raw_result = json.dumps(session, default=str)[:4000]
         db.update_record(
             database_path,
