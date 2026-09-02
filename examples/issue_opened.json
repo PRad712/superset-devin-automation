@@ -1,0 +1,18 @@
+{
+  "action": "opened",
+  "issue": {
+    "number": 42,
+    "title": "Fix dashboard filter persistence",
+    "body": "Dashboard filters are lost when navigating between tabs. Preserve the selected filters.",
+    "labels": [{"id": 1, "name": "bug", "color": "d73a4a"}],
+    "user": {"login": "octocat"}
+  },
+  "repository": {
+    "id": 123456,
+    "name": "superset",
+    "full_name": "your-org/superset",
+    "default_branch": "main",
+    "html_url": "https://github.com/your-org/superset"
+  },
+  "sender": {"login": "octocat"}
+}
