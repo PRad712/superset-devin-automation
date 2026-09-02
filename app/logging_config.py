@@ -8,16 +8,17 @@ from typing import Any
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         message = record.getMessage()
-        payload: dict[str, Any] = {
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "level": record.levelname,
-            "logger": record.name,
-            "event": getattr(record, "event", message),
-            "message": message,
-        }
         fields = getattr(record, "fields", {})
-        if isinstance(fields, dict):
-            payload.update(fields)
+        payload = dict(fields) if isinstance(fields, dict) else {}
+        payload.update(
+            {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "level": record.levelname,
+                "logger": record.name,
+                "event": getattr(record, "event", message),
+                "message": message,
+            }
+        )
         return json.dumps(payload, default=str)
 
 

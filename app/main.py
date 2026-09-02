@@ -153,7 +153,13 @@ async def github_webhook(request: Request):
         return JSONResponse({"detail": "Invalid webhook signature"}, status_code=401)
     event = request.headers.get("X-GitHub-Event", "")
     delivery = request.headers.get("X-GitHub-Delivery", "-")
-    log_event(logger, "webhook_received", source="github", event=event or "-", delivery=delivery)
+    log_event(
+        logger,
+        "webhook_received",
+        source="github",
+        github_event=event or "-",
+        delivery=delivery,
+    )
     if event == "ping":
         return {"ok": True, "event": "ping"}
     if event != "issues":
@@ -179,7 +185,7 @@ async def github_webhook(request: Request):
         logger,
         "webhook_received",
         source="github",
-        event=event,
+        github_event=event,
         delivery=delivery,
         issue_number=issue.number,
     )
@@ -201,7 +207,7 @@ async def trigger_remediation(
         logger,
         "webhook_received",
         source="manual",
-        event="trigger",
+        github_event="trigger",
         delivery="-",
         issue_number=issue_number,
     )
