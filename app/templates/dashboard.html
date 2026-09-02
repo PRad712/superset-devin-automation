@@ -5,10 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Superset Devin Automation</title>
   <style>
-    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    :root { color-scheme: light; font-family: system-ui, sans-serif; }
     body { margin: 0; background: #f3f4f6; color: #182230; }
     header { padding: 1.25rem 2rem; background: #172033; color: white; }
     main { max-width: 1200px; margin: auto; padding: 1.5rem; }
+    .health { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.25rem; margin-bottom: 1.5rem; border-radius: .5rem; background: white; box-shadow: 0 1px 3px #0002; border-left: 8px solid #9ca3af; }
+    .health .dot { width: 18px; height: 18px; border-radius: 50%; background: #9ca3af; flex: none; }
+    .health h2 { margin: 0; font-size: 1.25rem; } .health p { margin: .2rem 0 0; color: #4b5563; }
+    .health.ok { border-color: #16a34a; } .health.ok .dot { background: #16a34a; }
+    .health.warn { border-color: #d97706; } .health.warn .dot { background: #d97706; }
+    .health.bad { border-color: #dc2626; } .health.bad .dot { background: #dc2626; }
+    .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    .summary .card { border-top: 4px solid #2563eb; }
+    .summary .card strong { font-size: 2.2rem; } .summary .card small { display: block; color: #6b7280; margin-top: .25rem; }
+    .summary .label { font-size: .85rem; text-transform: uppercase; letter-spacing: .04em; color: #4b5563; }
+    h3 { margin: 0 0 .75rem; font-size: 1rem; color: #4b5563; }
     .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
     .card, .table-wrap { background: white; border-radius: .5rem; box-shadow: 0 1px 3px #0002; }
     .card { padding: 1rem; } .card strong { display: block; font-size: 1.7rem; margin-top: .3rem; }
@@ -21,8 +32,11 @@
   </style>
 </head>
 <body>
-  <header><h1>Superset Devin Automation</h1></header>
+  <header><h1>Superset Devin Automation</h1><p style="margin:.3rem 0 0;opacity:.8">Devin automatically fixes GitHub issues and opens pull requests. This page shows how that is going.</p></header>
   <main>
+    <section class="health" id="health"><span class="dot"></span><div><h2>Loading…</h2><p></p></div></section>
+    <section class="summary" id="summary"></section>
+    <h3>Details</h3>
     <section class="cards" id="metrics"></section>
     <div class="table-wrap"><table>
       <thead><tr><th>Issue #</th><th>Session</th><th>Status</th><th>PR</th><th>Created</th><th>Elapsed</th></tr></thead>
@@ -40,11 +54,43 @@
       const [sessionResponse, metricResponse] = await Promise.all([fetch('/sessions'), fetch('/metrics')]);
       records = await sessionResponse.json();
       const metrics = await metricResponse.json();
+      renderSummary(metrics);
       document.querySelector('#metrics').innerHTML = [
         ['Active', metrics.active], ['Completed', metrics.completed], ['Failed', metrics.failed],
-        ['Total', metrics.total], ['Avg completion (s)', metrics.avg_completion_seconds ?? '—']
+        ['Total', metrics.total], ['Avg completion (s)', metrics.avg_completion_seconds ?? '—'],
+        ['Completed / hour', metrics.throughput_per_hour ?? '—'], ['Completed last hour', metrics.completed_last_hour ?? '—']
       ].map(([label, value]) => `<div class="card">${label}<strong>${value}</strong></div>`).join('');
       render();
+    }
+    const duration = seconds => {
+      if (seconds == null) return '—';
+      if (seconds < 90) return `${Math.round(seconds)} sec`;
+      if (seconds < 5400) return `${Math.round(seconds / 60)} min`;
+      return `${(seconds / 3600).toFixed(1)} hr`;
+    };
+    function renderSummary(m) {
+      const finished = m.completed + m.failed;
+      const rate = m.success_rate_percent;
+      const health = document.querySelector('#health');
+      let cls = '', title = 'No activity yet', text = 'No GitHub issues have been sent to Devin so far.';
+      if (m.total > 0 && finished === 0) {
+        cls = 'ok'; title = 'Working — first fixes in progress';
+        text = `${m.active} issue${m.active === 1 ? ' is' : 's are'} being worked on right now; none have finished yet.`;
+      } else if (finished > 0) {
+        cls = rate >= 80 ? 'ok' : rate >= 50 ? 'warn' : 'bad';
+        title = cls === 'ok' ? 'Healthy — fixes are being delivered' : cls === 'warn' ? 'Needs attention — some fixes are failing' : 'Unhealthy — most fixes are failing';
+        text = `${m.completed} of ${finished} finished issue${finished === 1 ? '' : 's'} ended with a pull request ready for review` +
+          (m.failed ? `, ${m.failed} failed` : '') + (m.active ? `; ${m.active} more in progress.` : '.');
+      }
+      health.className = `health ${cls}`;
+      health.querySelector('h2').textContent = title;
+      health.querySelector('p').textContent = text;
+      document.querySelector('#summary').innerHTML = [
+        ['Issues processed', m.total, 'GitHub issues handed to Devin in total'],
+        ['Success rate', rate == null ? '—' : `${rate}%`, finished ? `${m.completed} fixed, ${m.failed} failed` : 'No issues finished yet'],
+        ['Average time to PR', duration(m.avg_time_to_pr_seconds), 'From issue received to pull request opened'],
+        ['In progress now', m.active, `Devin sessions currently running (max ${m.max_concurrent_sessions ?? '—'})`]
+      ].map(([label, value, hint]) => `<div class="card"><span class="label">${label}</span><strong>${value}</strong><small>${hint}</small></div>`).join('');
     }
     function render() {
       document.querySelector('#sessions').innerHTML = records.map(record => {
