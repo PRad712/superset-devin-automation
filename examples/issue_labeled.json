@@ -1,0 +1,15 @@
+{
+  "action": "labeled",
+  "issue": {
+    "number": 42,
+    "title": "Fix dashboard filter persistence",
+    "body": "Dashboard filters are lost when navigating between tabs. Preserve the selected filters.",
+    "labels": [{"id": 2, "name": "devin-remediate", "color": "5319e7"}]
+  },
+  "label": {"id": 2, "name": "devin-remediate", "color": "5319e7"},
+  "repository": {
+    "name": "superset",
+    "full_name": "your-org/superset",
+    "default_branch": "main"
+  }
+}

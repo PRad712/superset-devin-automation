@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Superset Devin Automation</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; background: #f3f4f6; color: #182230; }
+    header { padding: 1.25rem 2rem; background: #172033; color: white; }
+    main { max-width: 1200px; margin: auto; padding: 1.5rem; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    .card, .table-wrap { background: white; border-radius: .5rem; box-shadow: 0 1px 3px #0002; }
+    .card { padding: 1rem; } .card strong { display: block; font-size: 1.7rem; margin-top: .3rem; }
+    .table-wrap { overflow-x: auto; } table { border-collapse: collapse; width: 100%; min-width: 720px; }
+    th, td { text-align: left; padding: .75rem 1rem; border-bottom: 1px solid #e5e7eb; }
+    th { background: #f9fafb; } a { color: #2563eb; }
+    .badge { border-radius: 999px; color: white; display: inline-block; padding: .2rem .55rem; font-size: .8rem; }
+    .active { background: #2563eb; } .blocked { background: #d97706; }
+    .completed { background: #16a34a; } .failed { background: #dc2626; }
+  </style>
+</head>
+<body>
+  <header><h1>Superset Devin Automation</h1></header>
+  <main>
+    <section class="cards" id="metrics"></section>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Issue #</th><th>Session</th><th>Status</th><th>PR</th><th>Created</th><th>Elapsed</th></tr></thead>
+      <tbody id="sessions"></tbody>
+    </table></div>
+  </main>
+  <script>
+    let records = [];
+    const elapsed = (start, end) => {
+      const seconds = Math.max(0, Math.floor((new Date(end || Date.now()) - new Date(start)) / 1000));
+      const h = Math.floor(seconds / 3600), m = Math.floor(seconds % 3600 / 60), s = seconds % 60;
+      return `${h}h ${m}m ${s}s`;
+    };
+    async function refresh() {
+      const [sessionResponse, metricResponse] = await Promise.all([fetch('/sessions'), fetch('/metrics')]);
+      records = await sessionResponse.json();
+      const metrics = await metricResponse.json();
+      document.querySelector('#metrics').innerHTML = [
+        ['Active', metrics.active], ['Completed', metrics.completed], ['Failed', metrics.failed],
+        ['Total', metrics.total], ['Avg completion (s)', metrics.avg_completion_seconds ?? '—']
+      ].map(([label, value]) => `<div class="card">${label}<strong>${value}</strong></div>`).join('');
+      render();
+    }
+    function render() {
+      document.querySelector('#sessions').innerHTML = records.map(record => {
+        const sessionUrl = `https://app.devin.ai/sessions/${encodeURIComponent(record.session_id)}`;
+        const pr = record.pr_url ? `<a href="${record.pr_url}" target="_blank" rel="noreferrer">Open PR</a>` : '—';
+        return `<tr><td>${record.issue_number}</td><td><a href="${sessionUrl}" target="_blank" rel="noreferrer">${record.session_id}</a></td>
+          <td><span class="badge ${record.status}">${record.status}</span></td><td>${pr}</td>
+          <td>${new Date(record.created_at).toLocaleString()}</td><td>${elapsed(record.created_at, record.completed_at)}</td></tr>`;
+      }).join('');
+    }
+    refresh(); setInterval(refresh, 10000); setInterval(render, 1000);
+  </script>
+</body>
+</html>
