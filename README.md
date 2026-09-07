@@ -6,16 +6,17 @@ health on a dashboard that a non-engineer can read.
 
 ## Problem statement
 
-Apache Superset (like most large open-source projects) accumulates well-scoped
-bug reports faster than maintainers can pick them up. Each one costs an
-engineer the same fixed overhead — read the report, reproduce it, find the code,
-fix, test, open a PR — even when the fix itself is small. This service
-delegates that work to Devin while keeping review and merge with a human: when
-an issue is opened or labelled `devin-remediate`, it verifies the GitHub webhook, hands the issue to a Devin
-session with a remediation prompt, enforces a concurrency cap so cost stays
-bounded, polls Devin until the session finishes, records the resulting pull
-request, and exposes throughput / success-rate metrics so a lead can answer
-"is this working?" without reading code.
+Apache Superset, like most large open-source projects, accumulates
+well-scoped bug reports faster than maintainers can pick them up. Each one
+costs an engineer the same fixed overhead—read the report, reproduce it, find
+the code, fix it, test it, and open a PR—even when the fix itself is small.
+This service delegates that remediation work to Devin while keeping review and
+merge with a human: when an issue is labeled `devin-remediate`, it verifies
+the GitHub webhook, hands the issue to a Devin session with a remediation
+prompt, enforces a concurrency cap so cost stays bounded, polls Devin until
+the session finishes, records the resulting pull request, and exposes
+throughput and success-rate metrics so a lead can answer “is this working?”
+without reading code.
 
 ## Architecture
 
@@ -218,15 +219,15 @@ end: an issue in the fork [PRad712/superset](https://github.com/PRad712/superset
 was labelled `devin-remediate` → GitHub delivered the webhook → this service
 verified the HMAC signature → a real Devin API session was created →
 the poller tracked its status → Devin opened a PR for review. Five issues were
-created in the fork for this purpose; all five resulted in merged PRs
-(#10–#14). Investigation, implementation, test creation and PR preparation
+created in the fork for this purpose;All five resulted in merged pull requests: #14 for issue #1,
+#12 for issue #2, #11 for issue #3, #13 for issue #4, and #10 for issue #5. Investigation, implementation, test creation and PR preparation
 were delegated to Devin; issue selection, review and merge stayed with a
 human (ME) as the control point.
 
 | Issue | Source / rationale | Outcome |
 | --- | --- | --- |
 | [#1](https://github.com/PRad712/superset/issues/1) SQL injection risk in query-cancellation logic (`postgres.py`, `redshift.py`) | Bandit B608 / CWE-89 on this fork: f-string SQL in the Postgres and Redshift cancel-query paths | [PR #14](https://github.com/PRad712/superset/pull/14), merged. Both DBAPI queries parameterised, strict cancel-query-ID validation kept as defence in depth, other engine-spec cancel paths audited, tests prove values such as `1; DROP TABLE users; --` never reach `cursor.execute` |
-| [#2](https://github.com/PRad712/superset/issues/2) Resource ownership authorisation test gap | Modelled on a documented Superset vulnerability class (not a new finding) | [PR #12](https://github.com/PRad712/superset/pull/12), merged. Integration tests across dashboard, chart and dataset `PUT` endpoints prove a non-owner viewer cannot reassign owners; validated by temporarily removing the check and watching the tests fail |
+| [#2](https://github.com/PRad712/superset/issues/2) Resource ownership authorisation test gap | Modelled on a documented Superset vulnerability class (not a new finding) | [PR #12](https://github.com/PRad712/superset/pull/12), merged. Integration tests across dashboard, chart and dataset `PUT` endpoints prove a non-owner viewer cannot reassign editors or editorship; validated by temporarily removing the check and watching the tests fail |
 | [#3](https://github.com/PRad712/superset/issues/3) `/explore` datasource metadata authorisation check | Modelled on a documented Superset vulnerability class (not a new finding) | [PR #11](https://github.com/PRad712/superset/pull/11), merged. IDOR-style gap closed: a `form_data` datasource override was checked only against the chart's original datasource; access is now verified against the datasource actually returned, with regression tests |
 | [#4](https://github.com/PRad712/superset/issues/4) Vulnerable pinned dependencies: `flask`, `paramiko` | `pip-audit` on this fork: Flask CVE-2026-27205, Paramiko SHA-1 RSA CVE-2026-44405 | [PR #13](https://github.com/PRad712/superset/pull/13), merged. Flask 2.3.3 → 3.1.3 with compatibility fixes; configurable SSH-algorithm blocklist for Paramiko (no fixed upstream release available). 2,062 passed / 1 skipped in the touched suite |
 | [#5](https://github.com/PRad712/superset/issues/5) Unsafe pickle deserialisation + weak MD5 hashing (`key_value` module) | Bandit on this fork | [PR #10](https://github.com/PRad712/superset/pull/10), merged. `RestrictedUnpickler` allowlist with audit logging; test proves an `os.system` pickle payload is rejected without executing. MD5 call sites audited and classified as non-security (cache keys, fingerprints) |
@@ -261,10 +262,11 @@ also produced real activity in the fork:
   [#43420](https://github.com/apache/superset/issues/43420) were found by
   Devin to be already fixed on `master`; no redundant PRs were opened.
 
-Because `session_records` persisted across both runs, a dashboard screenshot
-from that period can show nine historical records — five from this supporting
-run and four webhook-triggered issues (#2–#5) — while issue #1 was recorded
-separately on a clean database during the live label-triggered workflow.
+Because SQLite persisted records across runs, historical dashboard screenshots
+may show nine records: five from the supporting simulation run and four from
+the first webhook batch (#2–#5). Issue #1 was later demonstrated on a clean
+database, so its live screenshot is separate. This is expected persistence,
+not duplicate remediation.
 
 ## Endpoints
 
