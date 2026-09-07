@@ -221,7 +221,7 @@ the poller tracked its status → Devin opened a PR for review. Five issues were
 created in the fork for this purpose; all five resulted in merged PRs
 (#10–#14). Investigation, implementation, test creation and PR preparation
 were delegated to Devin; issue selection, review and merge stayed with a
-human as the control point.
+human (ME) as the control point.
 
 | Issue | Source / rationale | Outcome |
 | --- | --- | --- |
