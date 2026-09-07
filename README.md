@@ -9,9 +9,9 @@ health on a dashboard that a non-engineer can read.
 Apache Superset (like most large open-source projects) accumulates well-scoped
 bug reports faster than maintainers can pick them up. Each one costs an
 engineer the same fixed overhead — read the report, reproduce it, find the code,
-fix, test, open a PR — even when the fix itself is small. This service removes
-that overhead from the human loop: when an issue is opened or labelled
-`devin-remediate`, it verifies the GitHub webhook, hands the issue to a Devin
+fix, test, open a PR — even when the fix itself is small. This service
+delegates that work to Devin while keeping review and merge with a human: when
+an issue is opened or labelled `devin-remediate`, it verifies the GitHub webhook, hands the issue to a Devin
 session with a remediation prompt, enforces a concurrency cap so cost stays
 bounded, polls Devin until the session finishes, records the resulting pull
 request, and exposes throughput / success-rate metrics so a lead can answer
@@ -82,7 +82,7 @@ Design choices worth knowing for review:
 | `app/logging_config.py` | JSON log formatter and `log_event` helper |
 | `app/templates/dashboard.html` | Framework-free dashboard (HTML + vanilla JS) |
 | `scripts/simulate_events.py` | Posts `scripts/sample_issues.json` to `/trigger` |
-| `scripts/mock_devin_api.py` | Stand-in Devin API for demos and CI-free testing |
+| `scripts/mock_devin_api.py` | Optional stand-in Devin API for no-cost local testing (`demo` compose profile) |
 | `scripts/send_webhook.py` | Signs and sends an example webhook payload |
 | `examples/*.json` | Sample GitHub `issues` webhook payloads |
 | `tests/` | pytest suite (webhook auth, trigger, limits, poller, metrics, logging) |
@@ -115,7 +115,7 @@ All variables:
 | --- | --- | --- | --- |
 | `DEVIN_API_KEY` | yes | - | Devin API bearer token |
 | `GITHUB_WEBHOOK_SECRET` | yes | - | Secret used for HMAC webhook validation |
-| `DEVIN_API_BASE_URL` | no | `https://api.devin.ai/v1` | Devin API base URL (point at the mock for demos) |
+| `DEVIN_API_BASE_URL` | no | `https://api.devin.ai/v1` | Devin API base URL (point at the mock for the optional local test profile) |
 | `DATABASE_PATH` | no | `data/sessions.db` | SQLite database path |
 | `POLL_INTERVAL_SECONDS` | no | `30` | Devin polling interval |
 | `REMEDIATION_LABEL` | no | `devin-remediate` | Label that triggers remediation |
@@ -158,13 +158,32 @@ label), `401` means the secret does not match.
 Behaviour: an `opened` issue always triggers remediation; an existing issue
 triggers when `devin-remediate` is added. Everything else is ignored.
 
-### 4. Run the simulation script (no GitHub, no Devin spend)
+### 4. Run the simulation script
 
-The demo profile adds a mock Devin API that walks each session through
-`working → blocked → finished` in ~40 s and returns a fake PR URL.
+`scripts/simulate_events.py` reads `scripts/sample_issues.json` (five real
+upstream `apache/superset` issues) and POSTs each to `/trigger/{issue_number}`,
+exercising the manual trigger path, the concurrency cap, persistence, polling
+and the dashboard. Against the real Devin API (the default `.env`) it creates
+real sessions and spends ACUs — that is how the supporting run described under
+[Recorded webhook remediation results](#recorded-webhook-remediation-results)
+was produced:
 
 ```bash
-# .env additions for demo mode
+docker compose up --build -d
+python scripts/simulate_events.py --delay 2
+```
+
+Options: `--url`, `--issues` (path to the JSON file), `--delay`, `--token`
+(when `TRIGGER_TOKEN` is set).
+
+**Optional no-cost local profile.** For a functional check without GitHub or
+Devin spend, the `demo` compose profile adds a mock Devin API that walks each
+session through `working → blocked → finished` in ~40 s and returns a
+placeholder PR URL. This profile is a local test fixture only; none of the
+results reported in this README came from it.
+
+```bash
+# .env additions for the mock profile
 # DEVIN_API_BASE_URL=http://mock-devin:9000/v1
 # POLL_INTERVAL_SECONDS=10
 
@@ -172,13 +191,9 @@ docker compose --profile demo up --build -d
 python scripts/simulate_events.py --delay 2
 ```
 
-The script reads `scripts/sample_issues.json` (five real Superset issues, see
-below) and POSTs each to `/trigger/{issue_number}`. Expected result: five
-`200` responses, five rows on the dashboard, a sixth trigger returns `429`, and
-within a minute the health banner reads "Healthy — fixes are being delivered".
-
-Options: `--url`, `--issues` (path to the JSON file), `--delay`, `--token`
-(when `TRIGGER_TOKEN` is set).
+Expected result: five `200` responses, five rows on the dashboard, a sixth
+trigger returns `429`, and within a minute the health banner reads "Healthy —
+fixes are being delivered".
 
 ### Simulate a raw GitHub webhook
 
@@ -196,32 +211,60 @@ curl -i -X POST http://localhost:8000/webhook/github \
   -H "X-Hub-Signature-256: sha256=$signature" --data-binary @"$payload"
 ```
 
-## The 5 remediated Superset issues
+## Recorded webhook remediation results
 
-`scripts/sample_issues.json` contains five real, open `apache/superset` bug
-reports (titles and bodies taken verbatim from GitHub, bodies truncated to
-~1500 characters). They were chosen because each is a concrete, reproducible
-defect scoped to a single area of the codebase — the kind of issue an
-autonomous agent can realistically close.
+The submitted demonstration used the real GitHub Issues webhook path end to
+end: an issue in the fork [PRad712/superset](https://github.com/PRad712/superset)
+was labelled `devin-remediate` → GitHub delivered the webhook → this service
+verified the HMAC signature → a real Devin API session was created →
+the poller tracked its status → Devin opened a PR for review. Five issues were
+created in the fork for this purpose; all five resulted in merged PRs
+(#10–#14). Investigation, implementation, test creation and PR preparation
+were delegated to Devin; issue selection, review and merge stayed with a
+human as the control point.
 
-| # | Issue | Area | Remediation PR |
-| --- | --- | --- | --- |
-| [#43420](https://github.com/apache/superset/issues/43420) | Table "Show summary" row overrides every metric aggregate with SUM, breaking COUNT_DISTINCT | Table chart | see note |
-| [#39951](https://github.com/apache/superset/issues/39951) | Superset 6.0.0 bug: Could not convert string '849' to numeric | Query/pandas coercion | see note |
-| [#40704](https://github.com/apache/superset/issues/40704) | Filters not applied to charts after navigating away from and back to a multi-tab dashboard | Dashboard native filters | see note |
-| [#38936](https://github.com/apache/superset/issues/38936) | Bug with filter time grain when trying to add default value | Native filters | see note |
-| [#40419](https://github.com/apache/superset/issues/40419) | Mixed Timeseries Chart value labels use the wrong Y-axis formatter | ECharts plugin | see note |
+| Issue | Source / rationale | Outcome |
+| --- | --- | --- |
+| [#1](https://github.com/PRad712/superset/issues/1) SQL injection risk in query-cancellation logic (`postgres.py`, `redshift.py`) | Bandit B608 / CWE-89 on this fork: f-string SQL in the Postgres and Redshift cancel-query paths | [PR #14](https://github.com/PRad712/superset/pull/14), merged. Both DBAPI queries parameterised, strict cancel-query-ID validation kept as defence in depth, other engine-spec cancel paths audited, tests prove values such as `1; DROP TABLE users; --` never reach `cursor.execute` |
+| [#2](https://github.com/PRad712/superset/issues/2) Resource ownership authorisation test gap | Modelled on a documented Superset vulnerability class (not a new finding) | [PR #12](https://github.com/PRad712/superset/pull/12), merged. Integration tests across dashboard, chart and dataset `PUT` endpoints prove a non-owner viewer cannot reassign owners; validated by temporarily removing the check and watching the tests fail |
+| [#3](https://github.com/PRad712/superset/issues/3) `/explore` datasource metadata authorisation check | Modelled on a documented Superset vulnerability class (not a new finding) | [PR #11](https://github.com/PRad712/superset/pull/11), merged. IDOR-style gap closed: a `form_data` datasource override was checked only against the chart's original datasource; access is now verified against the datasource actually returned, with regression tests |
+| [#4](https://github.com/PRad712/superset/issues/4) Vulnerable pinned dependencies: `flask`, `paramiko` | `pip-audit` on this fork: Flask CVE-2026-27205, Paramiko SHA-1 RSA CVE-2026-44405 | [PR #13](https://github.com/PRad712/superset/pull/13), merged. Flask 2.3.3 → 3.1.3 with compatibility fixes; configurable SSH-algorithm blocklist for Paramiko (no fixed upstream release available). 2,062 passed / 1 skipped in the touched suite |
+| [#5](https://github.com/PRad712/superset/issues/5) Unsafe pickle deserialisation + weak MD5 hashing (`key_value` module) | Bandit on this fork | [PR #10](https://github.com/PRad712/superset/pull/10), merged. `RestrictedUnpickler` allowlist with audit logging; test proves an `os.system` pickle payload is rejected without executing. MD5 call sites audited and classified as non-security (cache keys, fingerprints) |
 
-**Note on PR links.** In the recorded demo runs these five issues were driven
-through the full pipeline against the bundled mock Devin API, so the PR URLs
-stored in `session_records` are mock placeholders, not real pull requests.
-Real remediation sessions were verified separately with a live `DEVIN_API_KEY`
-using smoke-test payloads (session creation, tag filtering and status polling
-all confirmed against the real API). To produce real PRs, point
-`DEVIN_API_BASE_URL` back at `https://api.devin.ai/v1`, set `SUPERSET_REPO` to
-your Superset fork, and re-run `scripts/simulate_events.py`; the dashboard's
-"Open PR" links will then resolve to the PRs Devin opens. Each such run costs
-Devin ACUs (see cost governance below).
+A note on session status: a Devin session can remain `blocked` after it has
+opened its PR while it waits for further instructions. The PR link surfaced
+on the dashboard is the observable remediation output; `blocked` is not a
+failure state.
+
+### Supporting simulation run
+
+Before the live webhook demo, `scripts/simulate_events.py` was run against the
+real Devin API with the five upstream `apache/superset` issues in
+`scripts/sample_issues.json`, to exercise the manual `/trigger` path,
+concurrency limiting, persistence, polling and dashboard metrics. That run
+also produced real activity in the fork:
+
+* [PR #6](https://github.com/PRad712/superset/pull/6), merged — fix for
+  upstream [#39951](https://github.com/apache/superset/issues/39951)
+  (string-encoded saved metrics with verbose names not coerced to numeric).
+* [PR #7](https://github.com/PRad712/superset/pull/7), merged — fix for
+  upstream [#38936](https://github.com/apache/superset/issues/38936) (stale
+  chart-data error blocking the native time-range filter default-value picker).
+* [PR #8](https://github.com/PRad712/superset/pull/8), merged — fix for
+  upstream [#40704](https://github.com/apache/superset/issues/40704)
+  (native-filter scopes not re-synchronising on return to a multi-tab
+  dashboard).
+* [PR #9](https://github.com/PRad712/superset/pull/9) — an additional
+  `SKILL.md` documentation PR, rejected by the repository's licence guard
+  because the new file lacked the required ASF header. Not a remediation.
+* Upstream [#40419](https://github.com/apache/superset/issues/40419) and
+  [#43420](https://github.com/apache/superset/issues/43420) were found by
+  Devin to be already fixed on `master`; no redundant PRs were opened.
+
+Because `session_records` persisted across both runs, a dashboard screenshot
+from that period can show nine historical records — five from this supporting
+run and four webhook-triggered issues (#2–#5) — while issue #1 was recorded
+separately on a clean database during the live label-triggered workflow.
 
 ## Endpoints
 
